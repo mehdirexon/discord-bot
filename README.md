@@ -20,4 +20,4 @@
 1. Clone the repository:
 
 ```shell
-git clone https://github.com/your-username/MyAwesomeBot.git
+git clone https://github.com/MehdiREXON/discord-bot.git
