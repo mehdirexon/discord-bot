@@ -2,10 +2,13 @@ import discord
 from discord.ext import commands
 import asyncio
 from config import TOKEN
-from assets.chatGPTChannel import ChatGPTChannel
+from chatGPTChannel import ChatGPTChannel
+from discord.ext.commands import BucketType, cooldown, CommandOnCooldown
+from profiles import Developer,Bot,Channels,Roles
+from embed import EmbedsCreator
 
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='!', intents=discord.Intents.all())
+bot.remove_command('help')
 
 @bot.event
 async def on_ready():
@@ -22,7 +25,7 @@ async def on_message(ctx):
     if ctx.author == bot.user:
         return
 
-    if isinstance(ctx.channel, discord.TextChannel) and ctx.channel.name == "chatgpt-channel":
+    if isinstance(ctx.channel, discord.TextChannel) and ctx.channel.name == "chatgpt-channel": #you can change the channel name to whatever you want
         if ctx.content.startswith("!"):
             await bot.process_commands(ctx)
         elif ChatGPTChannel.isUserAllowed(ctx=ctx):
@@ -31,38 +34,67 @@ async def on_message(ctx):
     else:
         await bot.process_commands(ctx)
 
-
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
-        embed_var = discord.Embed(title="❌ Error!", color=0xff0000)
-        embed_var.add_field(
-            name="Details:",
-            value="This command doesn't exist. Enter `!help` to get more information.\nthis message will be deleted in the next 5 seconds",
-            inline=False
-        )
-        embed_var.set_footer(
-            text="Nexus",
-            icon_url="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1869px-Python-logo-notext.svg.png"
-        )
-        msg = await ctx.send(embed=embed_var)
+        embed = EmbedsCreator.errorEmbed(EmbedsCreator.descriptions['commandDoesntExists'])
+
+        msg = await ctx.send(embed=embed)
 
         await ctx.message.delete(delay=5)
         await msg.delete(delay=5)
 
+@bot.command()
+@cooldown(1, 3600, BucketType.user)
+async def bug(ctx, *, bug_report=None):
+    if ctx.channel.id != 1112820768867373066: #change it for your own server
+        return
+
+    if bug_report is None:
+        embed = EmbedsCreator.emptyBugReport()
+        msg = await ctx.send(embed=embed)
+
+        await ctx.message.delete(delay=5)
+        await msg.delete(delay=5)
+        return
+    
+    #sends to the dev
+    user = await bot.fetch_user(Developer.devID)
+    dm_channel = await user.create_dm()
+
+    reporter = ctx.author
+    reporter_info = f"Reporter: {reporter.mention} (ID: {reporter.id})"
+
+    embed = EmbedsCreator.reportForDev(reporter_info,bug_report)
+
+    await dm_channel.send(embed=embed)
+
+    await ctx.message.delete()
+
+    embed = EmbedsCreator.showTheReport(reporter,bug_report)
+
+    await ctx.send(embed=embed)
+
+@bug.error
+async def bug_error(ctx, error):
+    if isinstance(error, CommandOnCooldown):
+        cooldown_seconds = error.retry_after
+        minutes, seconds = divmod(cooldown_seconds, 60)
+
+        embed = EmbedsCreator.errorForEmbedLimitation(minutes,seconds)
+        msg = await ctx.send(embed=embed)
+        msg.delete(delay = 5)
+    else:
+        embed = EmbedsCreator.errorEmbed()
+        msg = await ctx.send(embed=embed)
+        msg.delete(delay = 5)
 
 @bot.command()
 async def ping(ctx):
     latency = round(bot.latency * 1000)
 
-    embed = discord.Embed(
-        title="Ping",
-        description=f":ping_pong: Pong! Latency: {latency}ms",
-        color=0x0099ff
-    )
-    embed.set_footer(text="Nexus", 
-                            icon_url="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1869px-Python-logo-notext.svg.png"
-                    )
+    embed = EmbedsCreator.pingEmbed(latency)
+
     message = await ctx.send(embed=embed)
 
     await ctx.message.delete(delay=5)
@@ -70,13 +102,16 @@ async def ping(ctx):
 
 @bot.command()
 async def chatgpt(ctx):
-    embed = discord.Embed(title="ChatGPT Channel", description="enter ```!start``` to create a text channel in order to chat", color=0x0099ff)
+    embed = EmbedsCreator.chatGPT()
 
-    await ctx.send(embed=embed)
+    msg = await ctx.send(embed=embed)
+    msg.delete(delay = 5)
 
 @bot.command()
 async def start(ctx):
-    category = discord.utils.get(ctx.guild.categories, id=1110871850206117960)
+    if ctx.channel.id != 1110957679595245678: #change it for your own server
+        return
+    category = discord.utils.get(ctx.guild.categories, id=Channels.chatGPTallowdCategoryID)
     overwrites = {
         ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False),
         ctx.author: discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -85,74 +120,49 @@ async def start(ctx):
 
     welcome_message = f"Welcome to the ChatGPT channel, {ctx.author.mention}! You can start chatting with ChatGPT here."
     await channel.send(welcome_message)
-
+    await ctx.message.delete()
 
 @bot.command()
 async def stop(ctx):
     if isinstance(ctx.channel, discord.TextChannel) and ctx.channel.name == "chatgpt-channel":
         await ctx.channel.delete()
     else:
-        await ctx.send("This command can only be used in a ChatGPT channel.")
+        embed = EmbedsCreator.errorEmbed("This command can only be used in a ChatGPT channel.")
+        msg = await ctx.send(embed=embed)
+        await msg.delete(delay = 5)
+        await ctx.message.delete(delay = 5)
 
 @bot.command()
 async def delete(ctx, arg):
-    if arg == "all":
-        role = discord.utils.get(ctx.guild.roles, id=1110838063317405798)
-        if role in ctx.author.roles:
+    role = discord.utils.get(ctx.guild.roles, id=Roles.manager)
+    if role in ctx.author.roles:
+        if arg == "all":
             await ctx.channel.purge(limit=None)
         else:
-            embed_var = discord.Embed(title="❌ Error!", color=0xff0000)
-            embed_var.add_field(
-                name="Details:",
-                value="you don't have the permission to do that!\nthis message will be deleted in the next 5 seconds",
-                inline=False
-            )
-            embed_var.set_footer(
-                text="Nexus",
-                icon_url="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1869px-Python-logo-notext.svg.png"
-            )
-            msg = await ctx.send(embed=embed_var)
-
-            await ctx.message.delete(delay=5)
-            await msg.delete(delay=5)
-            
-            return
+            await ctx.channel.purge(limit=int(arg))
     else:
-        await ctx.channel.purge(limit=int(arg))
+        embed = EmbedsCreator.noPermission()
 
-
-bot.remove_command('help')
-@bot.command()
-async def help(ctx):
-    embed = discord.Embed(title="Help", description="List of available commands:", color=0x00ff00)
-    embed.add_field(name="```!ping```", value="Check the bot's ping.", inline=True)
-    embed.add_field(name="```!start```", value="Create a ChatGPT channel.", inline=True)
-    embed.add_field(name="```!stop```", value="Delete the ChatGPT channel.", inline=True)
-    embed.add_field(name="```!delete [amount]```", value="Delete messages in the current channel.", inline=True)
-    embed.add_field(name="```!help```", value="Show this help message.", inline=True)
-    embed.add_field(name="```!poll [timer] [option1] [option2] ...```", value="Create a poll.", inline=True)
-    embed.set_footer(text="Nexus", icon_url="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1869px-Python-logo-notext.svg.png")
-    await ctx.channel.send(embed=embed.show_help())
-
-
-@bot.command()
-async def poll(ctx, timer: int, *options):
-    if not 2 <= len(options) <= 10:
-        embed_var = discord.Embed(title="❌ Error!", color=0xff0000)
-        embed_var.add_field(
-            name="Details:",
-            value="Please provide between 2 and 10 options for the poll.\nthis message will be deleted in the next 5 seconds",
-            inline=False
-        )
-        embed_var.set_footer(
-            text="Nexus",
-            icon_url="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1869px-Python-logo-notext.svg.png"
-        )
-        msg = await ctx.send(embed=embed_var)
+        msg = await ctx.send(embed=embed)
 
         await ctx.message.delete(delay=5)
         await msg.delete(delay=5)
         
+        return
+    
+@bot.command()
+async def help(ctx):
+    embed = EmbedsCreator.help()
+    await ctx.channel.send(embed=embed)
+
+@bot.command()
+async def poll(ctx, timer: int, *options):
+    if not 2 <= len(options) <= 10:
+        embed_var = EmbedsCreator.errorEmbed("Please provide between 2 and 10 options for the poll.")
+        msg = await ctx.send(embed=embed_var)
+
+        await ctx.message.delete(delay=5)
+        await msg.delete(delay=5)
         return
 
     number_emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
@@ -163,19 +173,23 @@ async def poll(ctx, timer: int, *options):
     poll_embed = discord.Embed(title="📊 Poll", description=poll_message, color=0x0099ff)
     poll_embed.set_footer(text="React to vote!")
 
+    poll_msg = await ctx.send(embed=poll_embed)
+
     for index in range(len(options)):
-        await poll_message.add_reaction(number_emojis[index])
+        await poll_msg.add_reaction(number_emojis[index])
 
     timer_embed = discord.Embed(title="⏲️ Timer", description=f"Time remaining: {timer} seconds", color=0x0099ff)
 
-    timer_message = await ctx.send(embed=timer_embed)
+    timer_msg = await ctx.send(embed=timer_embed)
 
     for i in range(timer, 0, -1):
         timer_embed.description = f"Time remaining: {i} seconds"
-        await timer_message.edit(embed=timer_embed)
+        await timer_msg.edit(embed=timer_embed)
         await asyncio.sleep(1)
 
-    updated_message = await ctx.fetch_message(poll_message.id)
+    await asyncio.sleep(1)
+
+    updated_message = await ctx.fetch_message(poll_msg.id)
 
     max_votes = 0
     max_option = None
@@ -189,14 +203,24 @@ async def poll(ctx, timer: int, *options):
 
     if max_option is not None:
         result_embed = discord.Embed(title="📊 Poll Result", color=0x0099ff)
-        result_embed.add_field(name="Question:", value=poll_message.embeds[0].description, inline=False)
+        result_embed.add_field(name="Question:", value=poll_embed.description, inline=False)
         result_embed.add_field(name="Winner:", value=options[max_option], inline=False)
         result_embed.add_field(name="Votes:", value=max_votes, inline=False)
 
         await ctx.send(embed=result_embed)
+    elif max_votes == 0:
+        result_embed = discord.Embed(title="📊 Poll Result", color=0x0099ff)
+        result_embed.add_field(name="Question:", value=poll_embed.description, inline=False)
+        result_embed.add_field(name="Winner:", value="nobody voted!", inline=False)
 
-    await poll_message.delete()
-    await timer_message.delete()
+        msg = await ctx.send(embed=result_embed)
 
+        await msg.delete(delay = 5)
+    else:
+        await ctx.send("All votes were the same. Nobody won.")
+
+    await ctx.message.delete()
+    await poll_msg.delete()
+    await timer_msg.delete()
 
 bot.run(TOKEN)

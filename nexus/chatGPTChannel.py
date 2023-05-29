@@ -1,18 +1,12 @@
 import discord
-import asyncio
 import openai
 from config import OPENAI_API_KEY
-
+from profiles import Bot
 openai.api_key = OPENAI_API_KEY
 
 class ChatGPTChannel():
-    channels = [1110871391970000936,1110957540063326338]
-    allowedRole = 1111764146434887680
-    @staticmethod
-    def isInChannel(channelID)-> bool:
-        if channelID in ChatGPTChannel.channels:
-            return True
-        return False
+    allowedRole = 1111764146434887680 #change it for your own role
+
     @staticmethod
     def isUserAllowed(ctx)->bool:
         role = discord.utils.get(ctx.guild.roles, id=ChatGPTChannel.allowedRole)
@@ -36,19 +30,21 @@ class ChatGPTChannel():
             presence_penalty=0.0
         )
         #creates a templete of the anwser for the message
-        embedVar = discord.Embed(
+        embed = discord.Embed(
             title=":speech_balloon: Q: " + user_input,
             color=0x00ffff
         )
-        embedVar.set_footer(
-            text="Nexus",
-            icon_url="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1869px-Python-logo-notext.svg.png"
+        embed.set_author(name="chatGPT", icon_url="https://uploads-ssl.webflow.com/5b105a0c66f2f636c7884a17/64063dbcad97bd421b437096_chatgpt.jpg")
+        embed.set_footer(
+            text=Bot.botName,
+            icon_url=Bot.botProf
         )
-        embedVar.add_field(
+        
+        embed.add_field(
             name=":robot: Response from ChatGPT",
             value=response.choices[0].text.strip()[:1024],
             inline=False
         )
-        return embedVar
+        return embed
         
     
